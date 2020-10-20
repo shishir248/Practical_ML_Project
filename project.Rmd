@@ -1,0 +1,130 @@
+---
+title: "Practical M.L. Project"
+author: "Shishir Kumar"
+date: "10/20/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE)
+```
+## Introduction
+
+Given: Accelerometers data of 6 research participants on belt,forearm, arm, and dumbell.Training set has accelerometer and label while testing set  with no label. 
+Objective: Predicting label for testing set.
+
+
+## Preparing the data
+
+Loading packages:
+
+```{r}
+library(ggplot2)
+library(caret)
+library(randomForest)
+project_training_data <- read.csv("./project_data/project_training_data.csv")
+project_testing_data <- read.csv("./project_data/project_testing_data.csv")
+```
+
+Randomly splitting the training data (project_training_data) into smaller training sets (project_training_data_1) and a validation sets (project_training_data_2)so as to estimate the out-of-sample error:
+
+```{r}
+set.seed(2009)
+div_training_set <- createDataPartition(y=project_training_data$classe, p=0.7, list=F)
+project_training_data_1 <- project_training_data[div_training_set, ]
+project_training_data_2 <- project_training_data[-div_training_set, ]
+```
+
+
+Reducing no of features by: 1. Removing variables with ~0 variance, variables which are NA and those that dont intuitively would make sense for prediction. 
+
+
+```{r}
+# remove variables with nearly zero variance
+V_0 <- nearZeroVar(project_training_data_1)
+project_training_data_1 <- project_training_data_1[, -V_0]
+project_training_data_2 <- project_training_data_2[, -V_0]
+# remove variables that are almost always NA
+NA_variables <- sapply(project_training_data_1, function(x) mean(is.na(x))) > 0.95
+project_training_data_1 <- project_training_data_1[, NA_variables==F]
+project_training_data_2 <- project_training_data_2[, NA_variables==F]
+# remove variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables
+project_training_data_1 <- project_training_data_1[, -(1:5)]
+project_training_data_2 <- project_training_data_2[, -(1:5)]
+```
+
+## Model Building
+
+
+Starting with Random forest model, fitting the model on project_training_data_1 and using 'train' fn to use three-folding cross validation for optimal tuning parameter
+
+```{r}
+# instruct train to use 3-fold CV to select optimal tuning parameters
+fitness_control <- trainControl(method="cv", number=3, verboseIter=F)
+# fitModel model on project_training_data_1
+fitModel <- train(classe ~ ., data=project_training_data_1, method="rf", trControl=fitness_control)
+# print final model to see tuning parameters it chose
+fitModel$finalModel
+```
+
+Can be see that it used 500 trees and tried 27 variables each split.
+
+## Model Evaluation and Selection
+
+
+Predicting label in project_training_data_2 using fitted model and showing the 
+comparison between confusion matrix and predicted versus the actual labels:
+
+```{r}
+# use model to predict classe in validation set (project_training_data_2)
+h_theta <- predict(fitModel, newdata=project_training_data_2)
+# show confusion matrix to get estimate of out-of-sample error
+confusionMatrix(project_training_data_2$classe, h_theta)
+```
+
+Observed accuracy is 99.8%, Hence the error=0.2%.
+
+Hence, Random Forests could be used on the test set to predict.
+
+## Re-training the Selected Model
+
+Before predicting, Training the model on the full training set (project_training_data), instead of using a model trained on a reduced training set (project_training_data_1), so as to produce the most accurate predictions. 
+Repeating:
+
+```{r}
+# remove variables with nearly zero variance
+V_0 <- nearZeroVar(project_training_data)
+project_training_data <- project_training_data[, -V_0]
+project_testing_data <- project_testing_data[, -V_0]
+# remove variables that are almost always NA
+NA_variables <- sapply(project_training_data, function(x) mean(is.na(x))) > 0.95
+project_training_data <- project_training_data[, NA_variables==F]
+project_testing_data <- project_testing_data[, NA_variables==F]
+# remove variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables
+project_training_data <- project_training_data[, -(1:5)]
+project_testing_data <- project_testing_data[, -(1:5)]
+# re-fitModel model using full training set (project_training_data)
+fitness_control <- trainControl(method="cv", number=3, verboseIter=F)
+fitModel <- train(classe ~ ., data=project_training_data, method="rf", trControl=fitness_control)
+```
+
+## Test Set Predictions
+
+Using fitModel model on project_training_data to predict the label for the observations in project_testing_data, and writing those predictions to individual files:
+
+```{r}
+# predict on test set
+h_theta <- predict(fitModel, newdata=project_testing_data)
+# convert predictions to character vector
+h_theta <- as.character(h_theta)
+# create function to write predictions to files
+writePML <- function(x) {
+    n <- length(x)
+    for(i in 1:n) {
+        filename <- paste0("problem_id_", i, ".txt")
+        write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+    }
+}
+# create prediction files to submit
+writePML(h_theta)
+```
